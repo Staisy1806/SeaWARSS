@@ -1,11 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.ComponentModel;
-using System.Data;
 using System.Drawing;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+using System.Drawing.Drawing2D;
 using System.Windows.Forms;
 
 namespace SeaWars
@@ -13,7 +9,8 @@ namespace SeaWars
     public partial class Form1 : Form
     {
         public const int mapSize = 10;
-        public int cellSize = 30;
+        public int cellSize = 35;
+
         public string alphabet = "АБВГДЕЖЗИК";
 
         public int[,] myMap = new int[mapSize, mapSize];
@@ -22,180 +19,334 @@ namespace SeaWars
         public Button[,] myButtons = new Button[mapSize, mapSize];
         public Button[,] enemyButtons = new Button[mapSize, mapSize];
 
-        public bool isPlaying = false;
-
+        private Queue<int> shipsQueue = new Queue<int>(new int[] { 4, 3, 3, 2, 2, 2, 1, 1, 1, 1 });
+        private List<(int, int)> currentShipCells = new List<(int, int)>();
+        private int currentShipSize = 0;
+        private bool isPlacingShips = true;
+        public static Form1 currentForm;
+        private Button startButton;
+        private Button backButton;
         public Bot bot;
+
+        private Dictionary<int, int> expectedShips = new Dictionary<int, int>()
+        {
+            { 4, 1 },
+            { 3, 2 },
+            { 2, 3 },
+            { 1, 4 }
+        };
 
         public Form1()
         {
-            InitializeComponent();
-            this.Text = "Морской бой";
+            currentForm = this;
+            this.Text = "Морський бій";
+            this.StartPosition = FormStartPosition.CenterScreen;
+            this.Paint += new PaintEventHandler(DrawBackground);
             Init();
+        }
+
+        private void DrawBackground(object sender, PaintEventArgs e)
+        {
+            using (LinearGradientBrush brush = new LinearGradientBrush(
+                new Point(0, 0), new Point(this.Width, 0),
+                Color.DarkKhaki, Color.Firebrick))
+            {
+                e.Graphics.FillRectangle(brush, this.ClientRectangle);
+            }
         }
 
         public void Init()
         {
-            isPlaying = false;
+            foreach (var btn in myButtons)
+                if (btn != null) this.Controls.Remove(btn);
+            foreach (var btn in enemyButtons)
+                if (btn != null) this.Controls.Remove(btn);
+
+            isPlacingShips = true;
+            shipsQueue = new Queue<int>(new int[] { 4, 3, 3, 2, 2, 2, 1, 1, 1, 1 });
+            currentShipCells.Clear();
+            currentShipSize = shipsQueue.Dequeue();
+
+            myMap = new int[mapSize, mapSize];
+            enemyMap = new int[mapSize, mapSize];
+            myButtons = new Button[mapSize, mapSize];
+            enemyButtons = new Button[mapSize, mapSize];
+
             CreateMaps();
-            bot = new Bot(enemyMap, myMap, enemyButtons, myButtons);
-            enemyMap = bot.ConfigureShips();
+            CreateControlButtons();
         }
 
-        public void CreateMaps()
+        private void CreateMaps()
         {
-            this.Width = mapSize * 2 * cellSize + 50;
-            this.Height = (mapSize + 3) * cellSize + 20;
-            for (int i = 0; i < mapSize; i++)
-            {
-                for (int j = 0; j < mapSize; j++)
-                {
-                    myMap[i, j] = 0;
+            this.Width = mapSize * 2 * cellSize + 180;
+            this.Height = (mapSize + 4) * cellSize + 50;
 
-                    Button button = new Button();
-                    button.Location = new Point(j * cellSize, i * cellSize);
-                    button.Size = new Size(cellSize, cellSize);
-                    button.BackColor = Color.White;
-                    if (j == 0 || i == 0)
+            for (int i = 0; i <= mapSize; i++)
+            {
+                for (int j = 0; j <= mapSize; j++)
+                {
+                    if (i == 0 && j == 0) continue;
+                    if (i == 0 || j == 0)
                     {
-                        button.BackColor = Color.Gray;
-                        if (i == 0 && j > 0)
-                            button.Text = alphabet[j - 1].ToString();
-                        if (j == 0 && i > 0)
-                            button.Text = i.ToString();
+                        Label label = new Label()
+                        {
+                            Text = i == 0 ? alphabet[j - 1].ToString() : i.ToString(),
+                            Location = new Point(j * cellSize, i * cellSize + 25),
+                            Size = new Size(cellSize, cellSize),
+                            TextAlign = ContentAlignment.MiddleCenter,
+                            Font = new Font("Arial", 10, FontStyle.Bold),
+                            ForeColor = Color.White,
+                            BackColor = Color.Transparent
+                        };
+                        this.Controls.Add(label);
                     }
                     else
                     {
-                        button.Click += new EventHandler(ConfigureShips);
+                        int rowIndex = i - 1;
+                        int colIndex = j - 1;
+
+                        Button myButton = new Button()
+                        {
+                            Location = new Point(j * cellSize, i * cellSize + 25),
+                            Size = new Size(cellSize, cellSize),
+                            BackColor = Color.White,
+                            FlatStyle = FlatStyle.Flat
+                        };
+                        myButton.Click += (sender, e) => PlaceShip(rowIndex, colIndex, myButton);
+                        myButtons[rowIndex, colIndex] = myButton;
+                        this.Controls.Add(myButton);
                     }
-                    myButtons[i, j] = button;
-                    this.Controls.Add(button);
                 }
             }
-            for (int i = 0; i < mapSize; i++)
-            {
-                for (int j = 0; j < mapSize; j++)
-                {
-                    myMap[i, j] = 0;
-                    enemyMap[i, j] = 0;
 
-                    Button button = new Button();
-                    button.Location = new Point(320 + j * cellSize, i * cellSize);
-                    button.Size = new Size(cellSize, cellSize);
-                    button.BackColor = Color.White;
-                    if (j == 0 || i == 0)
+            for (int i = 0; i <= mapSize; i++)
+            {
+                for (int j = 0; j <= mapSize; j++)
+                {
+                    if (i == 0 && j == 0) continue;
+                    if (i == 0 || j == 0)
                     {
-                        button.BackColor = Color.Gray;
-                        if (i == 0 && j > 0)
-                            button.Text = alphabet[j - 1].ToString();
-                        if (j == 0 && i > 0)
-                            button.Text = i.ToString();
+                        Label label = new Label()
+                        {
+                            Text = i == 0 ? alphabet[j - 1].ToString() : i.ToString(),
+                            Location = new Point(mapSize * cellSize + 40 + j * cellSize, i * cellSize + 25),
+                            Size = new Size(cellSize, cellSize),
+                            TextAlign = ContentAlignment.MiddleCenter,
+                            Font = new Font("Arial", 10, FontStyle.Bold),
+                            ForeColor = Color.White,
+                            BackColor = Color.Transparent
+                        };
+                        this.Controls.Add(label);
                     }
                     else
                     {
-                        button.Click += new EventHandler(PlayerShoot);
+                        int rowIndex = i - 1;
+                        int colIndex = j - 1;
+
+                        Button enemyButton = new Button()
+                        {
+                            Location = new Point(mapSize * cellSize + 40 + j * cellSize, i * cellSize + 25),
+                            Size = new Size(cellSize, cellSize),
+                            BackColor = Color.White,
+                            FlatStyle = FlatStyle.Flat
+                        };
+                        enemyButton.Click += (sender, e) => ShootAtEnemy(rowIndex, colIndex);
+                        enemyButtons[rowIndex, colIndex] = enemyButton;
+                        this.Controls.Add(enemyButton);
                     }
-                    enemyButtons[i, j] = button;
-                    this.Controls.Add(button);
                 }
             }
-            Label map1 = new Label();
-            map1.Text = "Карта игрока";
-            map1.Location = new Point(mapSize * cellSize / 2, mapSize * cellSize + 10);
-            this.Controls.Add(map1);
+        }
 
-            Label map2 = new Label();
-            map2.Text = "Карта противника";
-            map2.Location = new Point(350 + mapSize * cellSize / 2, mapSize * cellSize + 10);
-            this.Controls.Add(map2);
+        private void CreateControlButtons()
+        {
+            int bottomOffset = this.Height - 80;
 
-            Button startButton = new Button();
-            startButton.Text = "Начать";
-            startButton.Click += new EventHandler(Start);
-            startButton.Location = new Point(0, mapSize * cellSize + 20);
+            startButton = new Button()
+            {
+                Text = "Почати гру",
+                Location = new Point(30, bottomOffset),
+                Size = new Size(120, 35),
+                Font = new Font("Arial", 9, FontStyle.Bold),
+                BackColor = Color.White,
+                FlatStyle = FlatStyle.Flat,
+                Enabled = false
+            };
+            startButton.Click += (sender, e) => StartGame();
             this.Controls.Add(startButton);
-        }
 
-        public void Start(object sender, EventArgs e)
-        {
-            isPlaying = true;
-
-        }
-
-        public bool CheckIfMapIsNotEmpty()
-        {
-            bool isEmpty1 = true;
-            bool isEmpty2 = true;
-            for (int i = 1; i < mapSize; i++)
+            backButton = new Button()
             {
-                for (int j = 1; j < mapSize; j++)
-                {
-                    if (myMap[i, j] != 0)
-                        isEmpty1 = false;
-                    if (enemyMap[i, j] != 0)
-                        isEmpty2 = false;
-                }
-            }
-            if (isEmpty1 || isEmpty2)
-                return false;
-            else return true;
+                Text = "Назад",
+                Location = new Point(this.Width - 150, bottomOffset),
+                Size = new Size(100, 35),
+                Font = new Font("Arial", 9, FontStyle.Bold),
+                BackColor = Color.White,
+                FlatStyle = FlatStyle.Flat
+            };
+            backButton.Click += (sender, e) => BackToMainMenu();
+            this.Controls.Add(backButton);
         }
 
-        public void ConfigureShips(object sender, EventArgs e)
+        private void PlaceShip(int row, int col, Button button)
         {
-            Button pressedButton = sender as Button;
-            if (!isPlaying)
+            if (!isPlacingShips || myMap[row, col] != 0) return;
+
+            myMap[row, col] = 1;
+            button.BackColor = Color.FromArgb(0xBF, 0x21, 0x21);
+            currentShipCells.Add((row, col));
+
+            if (currentShipCells.Count == currentShipSize)
             {
-                if (myMap[pressedButton.Location.Y / cellSize, pressedButton.Location.X / cellSize] == 0)
+                currentShipCells.Clear();
+                if (shipsQueue.Count > 0)
                 {
-                    pressedButton.BackColor = Color.Red;
-                    myMap[pressedButton.Location.Y / cellSize, pressedButton.Location.X / cellSize] = 1;
+                    currentShipSize = shipsQueue.Dequeue();
                 }
                 else
                 {
-                    pressedButton.BackColor = Color.White;
-                    myMap[pressedButton.Location.Y / cellSize, pressedButton.Location.X / cellSize] = 0;
+                    isPlacingShips = false;
+                    startButton.Enabled = true;
                 }
             }
         }
 
-        public void PlayerShoot(object sender, EventArgs e)
+        private void ShootAtEnemy(int row, int col)
         {
+            if (isPlacingShips) return;
 
-            Button pressedButton = sender as Button;
-            bool playerTurn = Shoot(enemyMap, pressedButton);
-            if (!playerTurn)
-                bot.Shoot();
+            if (enemyMap[row, col] == -1 || enemyMap[row, col] == -2)
+                return;
 
-            if (!CheckIfMapIsNotEmpty())
+            bool hit = enemyMap[row, col] == 1;
+
+            if (hit)
             {
-                this.Controls.Clear();
+                enemyMap[row, col] = -1;
+                enemyButtons[row, col].BackColor = Color.FromArgb(0xBF, 0x21, 0x21);
+                enemyButtons[row, col].Text = "X";
+
+                if (CheckWin(enemyMap))
+                {
+                    MessageBox.Show("Ви виграли!");
+                    EndGame();
+                    return;
+                }
+            }
+            else
+            {
+                enemyMap[row, col] = -2;
+                enemyButtons[row, col].BackColor = Color.FromArgb(0x11, 0x13, 0x14);
+            }
+
+            if (CheckWin(myMap))
+            {
+                MessageBox.Show("Бот виграв!");
+                EndGame();
+                return;
+            }
+
+            bot.Shoot();
+        }
+
+        private void StartGame()
+        {
+            if (isPlacingShips)
+            {
+                MessageBox.Show("Розмістіть всі кораблі перед початком гри!");
+                return;
+            }
+
+            if (!ValidateShipPlacement())
+            {
+                MessageBox.Show("Невірне розміщення кораблів!");
                 Init();
+                return;
+            }
+
+            MessageBox.Show("Гра почалась!");
+            startButton.Enabled = false;
+            bot = new Bot(enemyMap, myMap, enemyButtons, myButtons);
+            bot.ConfigureShips();
+        }
+
+        private void BackToMainMenu()
+        {
+            var homeForm = Application.OpenForms["Home"];
+            if (homeForm == null)
+            {
+                Home home = new Home();
+                home.Show();
+            }
+            else
+            {
+                homeForm.Show();
             }
         }
 
-        public bool Shoot(int[,] map, Button pressedButton)
+        private bool CheckWin(int[,] map)
         {
-            bool hit = false;
-            if (isPlaying)
-            {
-                int delta = 0;
-                if (pressedButton.Location.X > 320)
-                    delta = 320;
-                if (map[pressedButton.Location.Y / cellSize, (pressedButton.Location.X - delta) / cellSize] != 0)
-                {
-                    hit = true;
-                    map[pressedButton.Location.Y / cellSize, (pressedButton.Location.X - delta) / cellSize] = 0;
-                    pressedButton.BackColor = Color.Blue;
-                    pressedButton.Text = "X";
-                }
-                else
-                {
-                    hit = false;
+            for (int i = 0; i < mapSize; i++)
+                for (int j = 0; j < mapSize; j++)
+                    if (map[i, j] == 1) return false;
+            return true;
+        }
 
-                    pressedButton.BackColor = Color.Black;
+        private bool ValidateShipPlacement()
+        {
+            bool[,] visited = new bool[mapSize, mapSize];
+            Dictionary<int, int> foundShips = new Dictionary<int, int>();
+
+            for (int i = 0; i < mapSize; i++)
+            {
+                for (int j = 0; j < mapSize; j++)
+                {
+                    if (myMap[i, j] == 1 && !visited[i, j])
+                    {
+                        List<(int, int)> currentShip = new List<(int, int)>();
+                        TraverseShip(i, j, visited, currentShip);
+
+                        int shipSize = currentShip.Count;
+                        if (!expectedShips.ContainsKey(shipSize)) return false;
+
+                        foundShips[shipSize] = foundShips.ContainsKey(shipSize) ? foundShips[shipSize] + 1 : 1;
+                    }
                 }
             }
-            return hit;
+
+            foreach (var ship in expectedShips)
+            {
+                if (!foundShips.ContainsKey(ship.Key) || foundShips[ship.Key] != ship.Value)
+                    return false;
+            }
+            return true;
+        }
+
+        private void TraverseShip(int i, int j, bool[,] visited, List<(int, int)> currentShip)
+        {
+            if (i < 0 || j < 0 || i >= mapSize || j >= mapSize || visited[i, j] || myMap[i, j] == 0)
+                return;
+
+            visited[i, j] = true;
+            currentShip.Add((i, j));
+
+            TraverseShip(i + 1, j, visited, currentShip);
+            TraverseShip(i - 1, j, visited, currentShip);
+            TraverseShip(i, j + 1, visited, currentShip);
+            TraverseShip(i, j - 1, visited, currentShip);
+        }
+
+        private void EndGame()
+        {
+            Form current = this;
+            Vopros voprosForm = new Vopros();
+
+            this.FormClosed += (s, e) =>
+            {
+                voprosForm.Show();
+            };
+
+            this.Close();
         }
     }
 }

@@ -1,22 +1,20 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
 using System.Windows.Forms;
 
 namespace SeaWars
 {
     static class Program
     {
-        /// <summary>
-        /// Главная точка входа для приложения.
-        /// </summary>
+        public static int MapSize { get; internal set; }
+
         [STAThread]
         static void Main()
         {
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
-            Application.Run(new Form1());
+
+            // Запускаємо програму з головного меню (форма Home)
+            Application.Run(new Home());
         }
     }
 }

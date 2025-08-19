@@ -1,22 +1,21 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.Drawing;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using System.Windows.Forms;
 
 namespace SeaWars
 {
     public class Bot
     {
-        public int[,] myMap = new int[Form1.mapSize, Form1.mapSize];//bot`s map
-        public int[,] enemyMap = new int[Form1.mapSize, Form1.mapSize];//player`s map
+        public int[,] myMap = new int[Form1.mapSize, Form1.mapSize];
+        public int[,] enemyMap = new int[Form1.mapSize, Form1.mapSize];
 
         public Button[,] myButtons = new Button[Form1.mapSize, Form1.mapSize];
         public Button[,] enemyButtons = new Button[Form1.mapSize, Form1.mapSize];
 
-        public Bot(int[,] myMap,int[,] enemyMap,Button[,] myButtons,Button[,] enemyButtons)
+        private (int, int)? lastHit = null; // Координати останнього влучення
+        private Random r = new Random();
+
+        public Bot(int[,] myMap, int[,] enemyMap, Button[,] myButtons, Button[,] enemyButtons)
         {
             this.myMap = myMap;
             this.enemyMap = enemyMap;
@@ -24,99 +23,116 @@ namespace SeaWars
             this.myButtons = myButtons;
         }
 
-        public bool IsInsideMap(int i,int j)
+        public void ConfigureShips()
         {
-            if(i<0 || j<0 || i>= Form1.mapSize || j>= Form1.mapSize)
-            {
-                return false;
-            }
-            return true;
+            ShipPlacer shipPlacer = new ShipPlacer(myMap);
+            shipPlacer.PlaceShips();
         }
 
-        public bool IsEmpty(int i,int j,int length)
-        {
-            bool isEmpty = true;
-
-            for (int k = j; k < j + length; k++)
-            {
-                if (myMap[i, k] != 0)
-                {
-                    isEmpty = false;
-                    break;
-                }
-            }
-
-            return isEmpty;
-        }
-
-        public int[,] ConfigureShips()
-        {
-            int lengthShip = 4;
-            int cycleValue = 4;
-            int shipsCount = 10;
-            Random r = new Random();
-
-            int posX = 0;
-            int posY = 0;
-
-            while (shipsCount > 0)
-            {
-                for (int i = 0; i < cycleValue / 4; i++)
-                {
-                    posX = r.Next(1, Form1.mapSize);
-                    posY = r.Next(1, Form1.mapSize);
-
-                    while (!IsInsideMap(posX, posY + lengthShip - 1) || !IsEmpty(posX,posY,lengthShip))
-                    {
-                        posX = r.Next(1, Form1.mapSize);
-                        posY = r.Next(1, Form1.mapSize);
-                    }
-                    for(int k = posY; k < posY + lengthShip; k++)
-                    {
-                        myMap[posX, k] = 1;
-                    }
-                    
-                    
-                    
-                    shipsCount--;
-                    if (shipsCount <= 0)
-                        break;
-                }
-                cycleValue += 4;
-                lengthShip--;
-            }
-            return myMap;
-        }
-
-       
         public bool Shoot()
         {
-            bool hit = false;
-            Random r = new Random();
+            int posX, posY;
 
-            int posX = r.Next(1, Form1.mapSize);
-            int posY = r.Next(1, Form1.mapSize);
-
-            while (enemyButtons[posX, posY].BackColor == Color.Blue || enemyButtons[posX, posY].BackColor == Color.Black)
+            if (lastHit.HasValue)
             {
-                posX = r.Next(1, Form1.mapSize);
-                posY = r.Next(1, Form1.mapSize);
+                // Якщо є останнє попадання, шукаємо корабель далі
+                (posX, posY) = HuntShip(lastHit.Value.Item1, lastHit.Value.Item2);
+            }
+            else
+            {
+                // Якщо нема попадань, стріляємо випадково
+                do
+                {
+                    posX = r.Next(0, Form1.mapSize);
+                    posY = r.Next(0, Form1.mapSize);
+                }
+                while (enemyMap[posX, posY] == -1 || enemyMap[posX, posY] == -2);
             }
 
-            if (enemyMap[posX, posY] != 0)
-            {
-                hit = true;
-                enemyMap[posX, posY] = 0;
-                enemyButtons[posX, posY].BackColor = Color.Blue;
-                enemyButtons[posX, posY].Text = "X";
-            }else
-            {
-                hit = false;
-                enemyButtons[posX, posY].BackColor = Color.Black;
-            }
+            bool hit = enemyMap[posX, posY] == 1;
+
             if (hit)
-                Shoot();
+            {
+                enemyMap[posX, posY] = -1;
+                enemyButtons[posX, posY].BackColor = Color.Red;
+                enemyButtons[posX, posY].Text = "X";
+                lastHit = (posX, posY); // Запам'ятовуємо попадання
+            }
+            else
+            {
+                enemyMap[posX, posY] = -2;
+                enemyButtons[posX, posY].BackColor = Color.Black;
+                if (lastHit.HasValue)
+                {
+                    lastHit = null; // Якщо промахнулись, забуваємо останнє попадання
+                }
+            }
+
+            // Перевірка, чи бот виграв
+            if (CheckWin(enemyMap))
+            {
+                MessageBox.Show("Бот виграв!");
+                ShowEndGameForm(); // Відкриваємо форму Vopros після закінчення гри
+            }
+
             return hit;
+        }
+
+        private void ShowEndGameForm()
+        {
+            // Створення та показ форми Vopros після завершення гри
+            Vopros voprosForm = new Vopros();
+            voprosForm.Show();
+        }
+
+        private (int, int) HuntShip(int hitX, int hitY)
+        {
+            int[][] directions = new int[][]
+            {
+                new int[] { 0, 1 },  // Праворуч
+                new int[] { 0, -1 }, // Ліворуч
+                new int[] { 1, 0 },  // Вниз
+                new int[] { -1, 0 }  // Вгору
+            };
+
+            foreach (var dir in directions)
+            {
+                int newX = hitX + dir[0];
+                int newY = hitY + dir[1];
+
+                if (newX >= 0 && newX < Form1.mapSize && newY >= 0 && newY < Form1.mapSize)
+                {
+                    if (enemyMap[newX, newY] == 1)
+                    {
+                        return (newX, newY); // Продовжуємо бити по кораблю
+                    }
+                }
+            }
+
+            return GetRandomUnshotCell();
+        }
+
+        private (int, int) GetRandomUnshotCell()
+        {
+            int x, y;
+            do
+            {
+                x = r.Next(0, Form1.mapSize);
+                y = r.Next(0, Form1.mapSize);
+            }
+            while (enemyMap[x, y] == -1 || enemyMap[x, y] == -2);
+
+            return (x, y);
+        }
+
+        // Додаємо метод перевірки перемоги в клас Bot
+        private bool CheckWin(int[,] map)
+        {
+            foreach (var cell in map)
+            {
+                if (cell == 1) return false;
+            }
+            return true;
         }
     }
 }
